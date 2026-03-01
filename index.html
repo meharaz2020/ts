@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MHR Pro Precision | Live Stream</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            color: #fff;
+            font-family: sans-serif;
+            overflow: hidden;
+        }
+        
+        .container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+        /* Error & Status UI */
+        
+        #status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border-left: 3px solid #00ccff;
+            font-size: 14px;
+            z-index: 10;
+        }
+        
+        #errorOverlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            text-align: center;
+        }
+        
+        .btn-retry {
+            margin-top: 15px;
+            padding: 10px 25px;
+            background: #00ccff;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div id="status">SYSTEM: INITIALIZING...</div>
+
+        <div id="errorOverlay">
+            <h2 style="color: #ff4444;">STREAM ERROR</h2>
+            <p id="errorMsg">Token Expired or Server Refused Connection</p>
+            <button class="btn-retry" onclick="location.reload()">REFRESH TOKEN</button>
+        </div>
+
+        <video id="video" controls playsinline></video>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const status = document.getElementById('status');
+        const errorOverlay = document.getElementById('errorOverlay');
+        const errorMsg = document.getElementById('errorMsg');
+
+        // PASTE YOUR URL HERE
+        const primarySource = 'http://103.144.89.251:8082/T-SPORTS-HD/index.m3u8?token=7d8f44f6094fd01dd5666b21f43401c773310235-d0bb62b7948049a1ce8954d9f48044ef-1772410119-1772399319&remote=no_check_ip';
+
+        // Optional Backup (e.g., official YouTube live or stable link)
+        const backupSource = 'https://live-cdn.jamuna.tv/jamuna/smil:jamuna.smil/playlist.m3u8';
+
+        function updateStatus(text, color = "#00ccff") {
+            status.innerText = `SYSTEM: ${text}`;
+            status.style.borderLeftColor = color;
+        }
+
+        function showError(msg) {
+            errorMsg.innerText = msg;
+            errorOverlay.style.display = 'flex';
+            updateStatus("ERROR", "#ff4444");
+        }
+
+        function initializePlayer(url) {
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    maxBufferLength: 30,
+                    manifestLoadingMaxRetry: 3,
+                });
+
+                hls.loadSource(url);
+                hls.attachMedia(video);
+
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    updateStatus("STREAM ACTIVE");
+                    video.play().catch(() => updateStatus("CLICK PLAY TO START"));
+                });
+
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        console.error("HLS Fatal Error:", data);
+                        if (data.details === "manifestLoadError") {
+                            showError("TOKEN EXPIRED: The server rejected your access token.");
+                        } else {
+                            hls.recoverMediaError();
+                        }
+                    }
+                });
+
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // For Safari/iOS Native support
+                video.src = url;
+                video.addEventListener('loadedmetadata', () => {
+                    updateStatus("NATIVE STREAM ACTIVE");
+                    video.play();
+                });
+                video.addEventListener('error', () => {
+                    showError("NATIVE ERROR: Stream could not be loaded.");
+                });
+            }
+        }
+
+        // Start the system
+        if (primarySource) {
+            initializePlayer(primarySource);
+        } else {
+            showError("No source URL provided.");
+        }
+    </script>
+
+</body>
+
+</html>
