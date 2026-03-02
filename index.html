@@ -4,153 +4,287 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MHR Pro Precision | Live Stream</title>
+    <title>MHR Pro Precision Hybrid</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
     <style>
-        body {
-            margin: 0;
-            background: #000;
-            color: #fff;
-            font-family: sans-serif;
-            overflow: hidden;
+        :root {
+            --mhr-glow: rgba(255, 255, 255, 0.7);
+            --mhr-glass: rgba(255, 255, 255, 0.08);
         }
-        
-        .container {
+
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .tv-frame {
             position: relative;
             width: 100vw;
             height: 100vh;
+            background: #000;
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        
-        video {
+
+        video,
+        #ytPlayer {
+            position: absolute;
             width: 100%;
             height: 100%;
             object-fit: contain;
-            background: #000;
-        }
-        /* Error & Status UI */
-        
-        #status {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            padding: 10px 20px;
-            background: rgba(0, 0, 0, 0.7);
-            border-left: 3px solid #00ccff;
-            font-size: 14px;
-            z-index: 10;
-        }
-        
-        #errorOverlay {
-            position: absolute;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.8);
+            z-index: 1;
+            border: none;
             display: none;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        .active-view {
+            display: block !important;
+            opacity: 1 !important;
+        }
+
+        #blackout {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 5;
+            pointer-events: none;
+            opacity: 1;
+            transition: opacity 0.4s;
+        }
+
+        .mhr-volume-container {
+            position: absolute;
+            right: 40px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            z-index: 20;
-            text-align: center;
+            gap: 10px;
+            z-index: 200;
+            opacity: 0;
+            transition: all 0.3s ease;
         }
-        
-        .btn-retry {
-            margin-top: 15px;
-            padding: 10px 25px;
-            background: #00ccff;
-            color: #000;
-            border: none;
+
+        .mhr-volume-container.active {
+            opacity: 1;
+            right: 50px;
+        }
+
+        .vol-label {
+            color: white;
+            font-size: 18px;
+            font-weight: 300;
+            letter-spacing: 1px;
+        }
+
+        .glass-track {
+            width: 3px;
+            height: 200px;
+            background: var(--mhr-glass);
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .vol-level {
+            width: 100%;
+            position: absolute;
+            bottom: 0;
+            background: #fff;
+            box-shadow: 0 0 10px #fff;
+            transition: height 0.05s linear;
+        }
+
+        #mhrBoot {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            color: white;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
             cursor: pointer;
-            font-weight: bold;
+            transition: 0.5s;
+        }
+
+        .mhr-logo {
+            font-size: 60px;
+            font-weight: 100;
+            letter-spacing: 15px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%,
+            100% {
+                opacity: 0.2;
+            }
+            50% {
+                opacity: 1;
+            }
         }
     </style>
 </head>
 
-<body>
+<body oncontextmenu="return false;">
 
-    <div class="container">
-        <div id="status">SYSTEM: INITIALIZING...</div>
+    <div id="mhrBoot" onclick="launchMHR()">
+        <div class="mhr-logo">MHR</div>
+        <div style="font-size: 8px; letter-spacing: 5px; color: #444; margin-top: 10px;">PRECISION SYSTEM</div>
+    </div>
 
-        <div id="errorOverlay">
-            <h2 style="color: #ff4444;">STREAM ERROR</h2>
-            <p id="errorMsg">Token Expired or Server Refused Connection</p>
-            <button class="btn-retry" onclick="location.reload()">REFRESH TOKEN</button>
+    <div class="tv-frame">
+        <div id="blackout"></div>
+        <div class="mhr-volume-container" id="volOSD">
+            <div class="vol-label" id="volNum">50</div>
+            <div class="glass-track">
+                <div class="vol-level" id="volFill" style="height: 50%;"></div>
+            </div>
         </div>
 
-        <video id="video" controls playsinline></video>
+        <video id="mhrPlayer" playsinline></video>
+        <div id="ytPlayer"></div>
     </div>
 
     <script>
-        const video = document.getElementById('video');
-        const status = document.getElementById('status');
-        const errorOverlay = document.getElementById('errorOverlay');
-        const errorMsg = document.getElementById('errorMsg');
+        // Playlist with the last HLS using a free CORS proxy
+        const playlist = [
+            { type: "hls", url: "https://owrcovcrpy.gpcdn.net/bpk-tv/1705/output/index.m3u8" },
+            { type: "hls", url: "https://owrcovcrpy.gpcdn.net/bpk-tv/1716/output/index.m3u8" },
+            { type: "hls", url: "https://owrcovcrpy.gpcdn.net/bpk-tv/1715/output/index.m3u8" },
+            { type: "youtube", name: "YouTube Live", url: "xVbGmFbKc4U" },
+            { type: "youtube", name: "YouTube Live", url: "7P6pqY6bTDw" },
+            { type: "youtube", name: "YouTube Live", url: "VXP-ubxhinA" },
+            { type: "youtube", name: "YouTube Live", url: "RZphrATTkz8" },
+            { type: "hls", url: "https://deshitv.deshitv24.net/live/myStream/playlist.m3u8" },
+            {
+                type: "hls",
+                url: "http://103.144.89.251:8082/T-SPORTS-HD/index.m3u8?token=5bc5a8a2c80d04acad9d61ca6835e256b2289e68-a30dfecb17bb4ea17d15b47e6dfe611c-1772436607-1772425807&remote=no_check_ip"
+            }
+        ];
 
-        // PASTE YOUR URL HERE
-        const primarySource = 'http://103.144.89.251:8082/T-SPORTS-HD/index.m3u8?token=7d8f44f6094fd01dd5666b21f43401c773310235-d0bb62b7948049a1ce8954d9f48044ef-1772410119-1772399319&remote=no_check_ip';
+        let currentIndex = 0;
+        let currentVol = 50;
+        let ytPlayer;
+        let hls = new Hls();
+        let osdTimer;
 
-        // Optional Backup (e.g., official YouTube live or stable link)
-        const backupSource = 'https://live-cdn.jamuna.tv/jamuna/smil:jamuna.smil/playlist.m3u8';
+        const video = document.getElementById('mhrPlayer');
+        const blackout = document.getElementById('blackout');
 
-        function updateStatus(text, color = "#00ccff") {
-            status.innerText = `SYSTEM: ${text}`;
-            status.style.borderLeftColor = color;
+        // YouTube API Initialization
+        function onYouTubeIframeAPIReady() {
+            ytPlayer = new YT.Player('ytPlayer', {
+                height: '100%',
+                width: '100%',
+                playerVars: { 'autoplay': 1, 'controls': 0, 'modestbranding': 1, 'rel': 0 },
+                events: { 'onReady': (e) => e.target.setVolume(currentVol) }
+            });
         }
 
-        function showError(msg) {
-            errorMsg.innerText = msg;
-            errorOverlay.style.display = 'flex';
-            updateStatus("ERROR", "#ff4444");
+        function launchMHR() {
+            document.documentElement.requestFullscreen().catch(() => {});
+            document.getElementById('mhrBoot').style.opacity = '0';
+            setTimeout(() => {
+                document.getElementById('mhrBoot').style.display = 'none';
+                tune(0);
+            }, 500);
         }
 
-        function initializePlayer(url) {
-            if (Hls.isSupported()) {
-                const hls = new Hls({
-                    maxBufferLength: 30,
-                    manifestLoadingMaxRetry: 3,
-                });
+        function tune(i) {
+            blackout.style.opacity = "1";
+            const channel = playlist[i];
+            const ytElement = document.getElementById('ytPlayer');
 
-                hls.loadSource(url);
-                hls.attachMedia(video);
+            video.classList.remove('active-view');
+            ytElement.classList.remove('active-view');
+            video.pause();
+            if (ytPlayer && ytPlayer.stopVideo) ytPlayer.stopVideo();
 
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    updateStatus("STREAM ACTIVE");
-                    video.play().catch(() => updateStatus("CLICK PLAY TO START"));
-                });
-
-                hls.on(Hls.Events.ERROR, (event, data) => {
-                    if (data.fatal) {
-                        console.error("HLS Fatal Error:", data);
-                        if (data.details === "manifestLoadError") {
-                            showError("TOKEN EXPIRED: The server rejected your access token.");
-                        } else {
-                            hls.recoverMediaError();
+            if (channel.type === "youtube") {
+                ytElement.classList.add('active-view');
+                if (ytPlayer && ytPlayer.loadVideoById) {
+                    ytPlayer.loadVideoById(channel.url);
+                    ytPlayer.setVolume(currentVol);
+                    ytPlayer.playVideo();
+                }
+                setTimeout(() => blackout.style.opacity = "0", 1500);
+            } else {
+                video.classList.add('active-view');
+                if (Hls.isSupported()) {
+                    hls.destroy();
+                    hls = new Hls();
+                    hls.loadSource(channel.url);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        video.play();
+                        video.volume = currentVol / 100;
+                    });
+                    hls.on(Hls.Events.ERROR, (event, data) => {
+                        if (data.fatal) {
+                            console.error("Stream failed. Likely expired token.");
+                            document.getElementById('volNum').innerText = "OFF AIR";
                         }
-                    }
-                });
-
-            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                // For Safari/iOS Native support
-                video.src = url;
-                video.addEventListener('loadedmetadata', () => {
-                    updateStatus("NATIVE STREAM ACTIVE");
+                    });
+                    video.onplaying = () => blackout.style.opacity = "0";
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = channel.url;
                     video.play();
-                });
-                video.addEventListener('error', () => {
-                    showError("NATIVE ERROR: Stream could not be loaded.");
-                });
+                }
             }
         }
 
-        // Start the system
-        if (primarySource) {
-            initializePlayer(primarySource);
-        } else {
-            showError("No source URL provided.");
+        function handleVolume(delta) {
+            currentVol = Math.min(Math.max(currentVol + delta, 0), 100);
+            video.volume = currentVol / 100;
+            if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(currentVol);
+            document.getElementById('volNum').innerText = currentVol;
+            document.getElementById('volFill').style.height = currentVol + "%";
+            const osd = document.getElementById('volOSD');
+            osd.classList.add('active');
+            clearTimeout(osdTimer);
+            osdTimer = setTimeout(() => osd.classList.remove('active'), 1200);
         }
-    </script>
 
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowRight") {
+                currentIndex = (currentIndex + 1) % playlist.length;
+                tune(currentIndex);
+            } else if (e.key === "ArrowLeft") {
+                currentIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+                tune(currentIndex);
+            } else if (e.key === "ArrowUp") {
+                handleVolume(5);
+                e.preventDefault();
+            } else if (e.key === "ArrowDown") {
+                handleVolume(-5);
+                e.preventDefault();
+            }
+        });
+    </script>
 </body>
 
 </html>
